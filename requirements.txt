@@ -1,0 +1,20 @@
+#Core Data Science
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+#Financial Data & Trading
+alpaca-trade-api>=3.0.0
+yfinance>=0.2.30
+
+#Dashboard & Visualization
+streamlit>=1.28.0
+plotly>=5.18.0
+matplotlib>=3.8.0
+streamlit-autorefresh>=1.0.1
+
+#AI & Utilities
+mistralai>=0.4.0
+python-dotenv>=1.0.0
+schedule>=1.2.1
+requests>=2.31.0

@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+#1: AEGIS ENGINE (STRATEGY & EXECUTION)
+  aegis_bot:
+    build: .
+    container_name: aegis_bot
+    restart: always
+    
+    #Force l'heure de New York pour le trading (Crucial pour les horaires de bourse)
+    environment:
+      - TZ=America/New_York
+      
+    #Charge les clés API (Alpaca, Mistral, Discord)
+    env_file:
+      - .env
+      
+    #Persistance des données (Ledger & Logs partagés)
+    volumes:
+      - .:/app            # Monte le code source (utile pour hot-reload si besoin)
+      - ./logs:/app/logs  # Partage les logs avec le dashboard
+      - ./data:/app/data  # Persistance des données locales
+      
+    #Protection Anti-Saturation Disque (Rotation des logs Docker)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"   # Max 10 Mo par fichier
+        max-file: "3"     # Garde les 3 derniers seulement
+        
+    #Commande de lancement du moteur
+    command: python main.py
+    
+    #Sécurité: Laisse 30s au bot pour finir un trade avant de couper lors d'un restart
+    stop_grace_period: 30s
+    
+    #Réseau interne
+    networks:
+      - aegis_net
+
+  
+  #2: AEGIS DASHBOARD (MONITORING)
+  
+  aegis_dash:
+    build: .
+    container_name: aegis_dash
+    restart: always
+    
+    #Force l'heure de New York
+    environment:
+      - TZ=America/New_York
+      
+    env_file:
+      - .env
+      
+    # Port 8501
+    ports:
+      - "8501:8501"
+      
+    # Volumes partagés (Lecture des logs du bot)
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+      - ./data:/app/data
+      
+    # Protection Anti-Saturation Disque
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+    command: streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
+    
+    # Réseau interne
+    networks:
+      - aegis_net
+
+
+# RÉSEAU ISOLÉ
+
+networks:
+  aegis_net:
+    driver: bridge
