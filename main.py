@@ -9,7 +9,7 @@ from alpaca_trade_api.rest import TimeFrame
 from mistralai import Mistral
 from dotenv import load_dotenv
 
-#CONFIGURATION & ENVIRONMENT
+# CONFIGURATION & ENVIRONMENT
 load_dotenv()
 
 logging.basicConfig(
@@ -31,7 +31,7 @@ DEFENSE_ASSETS = ['GLD', 'TLT', 'SHY', 'SH', 'VIXY', 'SHV']
 ALL_TICKERS = list(set(ATTACK_ASSETS + DEFENSE_ASSETS + ['SPY']))
 
 
-#REPORTING MODULE & AI ANALYST
+# REPORTING MODULE & AI ANALYST
 
 class DiscordReporter:
     def __init__(self, api, webhook_url):
@@ -39,6 +39,44 @@ class DiscordReporter:
         self.webhook_url = webhook_url
         self.mistral_key = os.getenv("MISTRAL_API_KEY")
         self.ai_client = Mistral(api_key=self.mistral_key) if self.mistral_key else None
+
+    def get_ai_risk_scores(self, target_weights):
+        """Demande à Mistral de moduler les poids selon le risque macro actuel"""
+        if not self.ai_client:
+            return {k: 1.0 for k in target_weights.keys()}
+
+        tickers = list(target_weights.keys())
+        prompt = f"""
+        You are the Chief Risk Officer at a quant hedge fund. Assess the current qualitative/news risk for these assets: {tickers}.
+        Provide a risk multiplier for each asset between 0.5 (high risk/bad news -> reduce allocation) and 1.5 (strong momentum/good news -> increase allocation). 1.0 is neutral.
+        You MUST respond ONLY with a valid JSON dictionary containing the tickers as keys and the float multipliers as values. Nothing else.
+        Example: {{"AAPL": 1.0, "GLD": 1.2, "TSLA": 0.8}}
+        """
+        try:
+            response = self.ai_client.chat.complete(
+                model="mistral-tiny",
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}]
+            )
+            content = response.choices[0].message.content
+            
+            # Nettoyage du JSON au cas où l'IA rajoute des balises Markdown
+            if "```json" in content: content = content.split("```json")[1].split("```")[0]
+            elif "```" in content: content = content.split("```")[1].split("```")[0]
+            
+            scores = json.loads(content)
+            
+            # Sécurité: Forcer les limites entre 0.5 et 1.5 pour éviter les dérives
+            final_scores = {}
+            for t in tickers:
+                raw_score = float(scores.get(t, 1.0))
+                final_scores[t] = max(0.5, min(1.5, raw_score))
+            
+            logger.info(f"🧠 AI Multipliers Generated: {final_scores}")
+            return final_scores
+        except Exception as e:
+            logger.error(f"AI Risk Scoring Failed (Fallback to 1.0): {e}")
+            return {k: 1.0 for k in target_weights.keys()}
 
     def get_ai_briefing(self, regime, split_desc, target_weights):
         if not self.ai_client:
@@ -102,7 +140,7 @@ class DiscordReporter:
                         {"name": "🔭 Target Allocation", "value": f"```json\n{json.dumps(display_weights, indent=2)}\n```"},
                         {"name": "⚡ Trades Executed", "value": "\n".join(trades) if trades else "No rebalance needed."}
                     ],
-                    "footer": {"text": "Aegis Prime Kernel V25 • Fractional & AI Module"}
+                    "footer": {"text": "Aegis Prime Kernel V25.1 • Fractional & AI Module"}
                 }]
             }
             requests.post(self.webhook_url, data={'payload_json': json.dumps(payload)}, files={'file': ('chart.png', buf, 'image/png')})
@@ -110,7 +148,7 @@ class DiscordReporter:
         except Exception as e: logger.error(f"Report Error: {e}")
 
 
-#TRADING ENGINE
+# TRADING ENGINE
 
 class AegisEngine:
     def __init__(self):
@@ -147,7 +185,7 @@ class AegisEngine:
     def execute_portfolio(self, target_weights, regime, split_desc):
         logger.info("⚡ Entering Fractional Execution Engine...")
         try:
-            #Annulation des ordres bloqués
+            # Annulation des ordres bloqués
             self.api.cancel_all_orders()
             logger.info("🧹 Cleared pending orders.")
             
@@ -156,7 +194,7 @@ class AegisEngine:
             positions = {p.symbol: float(p.market_value) for p in self.api.list_positions()}
             trades = []
 
-            #Ventes (Libération de capital)
+            # Ventes (Libération de capital)
             for sym, curr_val in positions.items():
                 target_val = equity * target_weights.get(sym, 0)
                 if target_val < curr_val * 0.90:
@@ -171,7 +209,7 @@ class AegisEngine:
 
             time.sleep(3) # Pause pour s'assurer que le cash est dispo
 
-            #Achats (Fractionné)
+            # Achats (Fractionné)
             for sym, w in target_weights.items():
                 target_val = equity * w
                 curr_val = positions.get(sym, 0)
@@ -191,6 +229,7 @@ class AegisEngine:
         df = self.get_market_data()
         if df.empty: return
         
+        # 1. Régime Mathématique
         spy_vol = df['SPY'].pct_change().rolling(21).std().iloc[-1] * np.sqrt(252)
         if spy_vol < 0.18: split = [0.9, 0.1]; regime = "AGGRESSIVE (Low Vol)"
         elif spy_vol > 0.28: split = [0.2, 0.8]; regime = "DEFENSIVE (High Vol)"
@@ -199,11 +238,23 @@ class AegisEngine:
         t_growth = self.get_growth_target(df)
         t_shield = self.get_shield_target(df)
         
-        final_target = {}
+        # 2. Allocation Quantitative Initiale
+        base_target = {}
         all_assets = set(list(t_growth.keys()) + list(t_shield.keys()))
         for a in all_assets:
             w = (t_growth.get(a, 0) * split[0]) + (t_shield.get(a, 0) * split[1])
-            if w > 0.02: final_target[a] = w
+            if w > 0.02: base_target[a] = w
+            
+        # 3. INTERVENTION DE L'IA (Modulation des pondérations)
+        logger.info("🧠 Requesting AI Risk adjustment from Mistral...")
+        ai_multipliers = self.reporter.get_ai_risk_scores(base_target)
+        
+        final_target = {}
+        for a in base_target:
+            # On applique le multiplicateur (0.5 à 1.5) défini par l'IA
+            final_target[a] = base_target[a] * ai_multipliers.get(a, 1.0)
+            
+        # 4. Normalisation de Sécurité Finale (Buffer de 98%)
         total = sum(final_target.values())
         if total > 0: 
             final_target = {k: (v/total) * 0.98 for k, v in final_target.items()}
@@ -218,15 +269,14 @@ class AegisEngine:
                     logger.warning(f"🚨 CRASH PROTECTION: Liquidated {p.symbol}")
         except: pass
 
-
-#RUNNER
+# RUNNER
 
 if __name__ == "__main__":
     bot = AegisEngine()
     schedule.every().friday.at("21:45").do(bot.run_cycle)
     schedule.every(1).minutes.do(bot.watchdog)
     
-    logger.info("✅ AEGIS PRIME V25 ONLINE. Awaiting schedule...")
+    logger.info("✅ AEGIS PRIME V25.1 ONLINE. Awaiting schedule...")
     while True:
         schedule.run_pending()
         time.sleep(10)
