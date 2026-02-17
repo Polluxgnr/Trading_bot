@@ -1,4 +1,4 @@
-# 🛡️ Autonomous AI-Driven Hedge Fund 
+# 🛡️ Autonomous Hedge Fund 
 
 C'est un système de trading quantitatif, conteneurisé et déployé sur Google Cloud. Il gère un portefeuille "Global Macro" (Tech, Crypto, Matières premières, Obligations) en utilisant un moteur mathématique déterministe couplé à une analyse de données macroéconomiques en temps réel. **Mistral AI** est utilisé exclusivement comme analyste de reporting pour vulgariser les décisions algorithmiques.
 
