@@ -126,8 +126,7 @@ sudo docker-compose up -d --build
 
 ```
 
-***© 2026 Pollux CORP. Sentinel Sovereign System Operational.*** *Avis : Le trading algorithmique comporte des risques substantiels. Ce logiciel est fourni à des fins éducatives et de démonstration technologique.*
-
+***© 2026 Pollux CORP.***
 ---
 
 ---
@@ -262,5 +261,4 @@ sudo docker-compose up -d --build
 
 ```
 
-***© 2026 Pollux CORP. Sentinel Sovereign System Operational.*** *Disclaimer: Algorithmic trading involves substantial risk.
-This software is provided for educational and technological demonstration purposes only.*
+***© 2026 Pollux CORP.***
