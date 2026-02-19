@@ -1,84 +1,85 @@
 version: '3.8'
 
 services:
-#1: AEGIS ENGINE (STRATEGY & EXECUTION)
-  aegis_bot:
+  # =================================================================
+  # 1: AEGIS KERNEL (QUANTITATIVE ENGINE & EXECUTION)
+  # =================================================================
+  aegis_kernel:
     build: .
-    container_name: aegis_bot
+    container_name: aegis_kernel
     restart: always
     
-    #Force l'heure de New York pour le trading (Crucial pour les horaires de bourse)
+    # Force l'heure de New York (Crucial pour la synchro des marchés)
     environment:
       - TZ=America/New_York
       
-    #Charge les clés API (Alpaca, Mistral, Discord)
+    # Injection sécurisée des clés API (Alpaca, Mistral, Discord)
     env_file:
       - .env
       
-    #Persistance des données (Ledger & Logs partagés)
+    # Persistance (Synchronisation du code et des logs en direct)
     volumes:
-      - .:/app            # Monte le code source (utile pour hot-reload si besoin)
-      - ./logs:/app/logs  # Partage les logs avec le dashboard
-      - ./data:/app/data  # Persistance des données locales
+      - ./:/app
       
-    #Protection Anti-Saturation Disque (Rotation des logs Docker)
+    # Protection Anti-Saturation Disque (Empêche l'erreur "No space left")
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"   # Max 10 Mo par fichier
-        max-file: "3"     # Garde les 3 derniers seulement
+        max-size: "10m"   # Max 10 Mo par fichier de log
+        max-file: "3"     # Garde uniquement les 3 derniers
         
-    #Commande de lancement du moteur
-    command: python main.py
+    # Commande de lancement du moteur autonome
+    command: python aegis_bot.py
     
-    #Sécurité: Laisse 30s au bot pour finir un trade avant de couper lors d'un restart
+    # Sécurité Financière : Laisse 30s au bot pour finir un ordre API avant de le forcer à s'éteindre lors d'une mise à jour
     stop_grace_period: 30s
     
-    #Réseau interne
     networks:
       - aegis_net
 
-  
-  #2: AEGIS DASHBOARD (MONITORING)
-  
-  aegis_dash:
+
+  # =================================================================
+  # 2: AEGIS TERMINAL (MONITORING & HUD)
+  # =================================================================
+  aegis_terminal:
     build: .
-    container_name: aegis_dash
+    container_name: aegis_terminal
     restart: always
     
-    #Force l'heure de New York
     environment:
       - TZ=America/New_York
       
     env_file:
       - .env
       
-    # Port 8501
+    # Exposition du port Web pour l'interface graphique
     ports:
       - "8501:8501"
       
-    # Volumes partagés (Lecture des logs du bot)
+    # Partage du même volume pour lire le fichier aegis_production.log généré par le Kernel
     volumes:
-      - .:/app
-      - ./logs:/app/logs
-      - ./data:/app/data
+      - ./:/app
       
-    # Protection Anti-Saturation Disque
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
         
-    command: streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
+    # Commande de lancement du Dashboard
+    command: streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0 --logger.level=error
     
-    # Réseau interne
+    # S'assure que le Terminal démarre APRES le Kernel
+    depends_on:
+      - aegis_kernel
+      
     networks:
       - aegis_net
 
 
-# RÉSEAU ISOLÉ
-
+# =================================================================
+# RÉSEAU ISOLÉ (Sécurité interne)
+# =================================================================
 networks:
   aegis_net:
     driver: bridge
