@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  # =================================================================
+  
   # 1: AEGIS KERNEL (QUANTITATIVE ENGINE & EXECUTION)
-  # =================================================================
+ 
   aegis_kernel:
     build: .
     container_name: aegis_kernel
@@ -37,10 +37,8 @@ services:
     networks:
       - aegis_net
 
-
-  # =================================================================
   # 2: AEGIS TERMINAL (MONITORING & HUD)
-  # =================================================================
+
   aegis_terminal:
     build: .
     container_name: aegis_terminal
@@ -77,9 +75,8 @@ services:
       - aegis_net
 
 
-# =================================================================
 # RÉSEAU ISOLÉ (Sécurité interne)
-# =================================================================
+
 networks:
   aegis_net:
     driver: bridge
