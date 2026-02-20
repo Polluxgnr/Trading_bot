@@ -1,5 +1,7 @@
 # 📈 Pollux Quantitative Macro (Aegis Prime System)
 
+# Dashboard : http://34.16.10.127:8501/
+
 This is an autonomous, containerized quantitative trading system deployed on Google Cloud. It manages a “Global Macro” portfolio (Equities, Tech, Commodities, Bonds) using a deterministic mathematical engine coupled with real time macroeconomic data analysis. 
  
 **Mistral AI** is integrated strictly as a post-execution reporting analyst to translate algorithmic decisions into human readable institutional commentary.
