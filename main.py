@@ -283,8 +283,9 @@ if __name__ == "__main__":
     logger.info("="*50)
     
     # Scheduling standard: 21:45 Paris time = 15:45 NY Time (Weekly rebalance)
-    schedule.every().friday.at("21:45").do(bot.run_cycle)
+    schedule.every().friday.at("15:45").do(bot.run_cycle)
     
     while True:
         schedule.run_pending()
         time.sleep(60)
+
