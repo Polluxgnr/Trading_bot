@@ -22,6 +22,7 @@ st.markdown("""
     .header-links a { color: #00E676; text-decoration: none; margin-right: 15px; font-weight: bold; }
     .header-links a:hover { text-decoration: underline; }
     .mistral-box { background-color: #0E1117; border: 1px solid #30363D; border-radius: 8px; padding: 15px; margin-bottom: 20px; border-left: 3px solid #AF52DE;}
+    .info-text { color: #A3B3BC; font-size: 14px; font-style: italic; margin-bottom: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,8 +107,31 @@ def generate_mistral_insight(top_holdings_str):
 @st.cache_data(ttl=3600)
 def get_recent_news(symbol):
     try:
-        return yf.Ticker(symbol).news[:3]
-    except:
+        news_data = yf.Ticker(symbol).news[:3]
+        parsed_news = []
+        for n in news_data:
+            # Nouvelle structure Yahoo Finance (imbriquée dans 'content')
+            if 'content' in n:
+                content = n['content']
+                title = content.get('title', 'No Title')
+                link = content.get('clickThroughUrl', {}).get('url', '#')
+                date_str = content.get('pubDate', '')
+                pub_time = date_str[:10] if date_str else "Recent"
+            # Ancienne structure Yahoo Finance (plate)
+            else:
+                title = n.get('title', 'No Title')
+                link = n.get('link', '#')
+                pub_time_raw = n.get('providerPublishTime')
+                try:
+                    pub_time = datetime.fromtimestamp(pub_time_raw).strftime('%Y-%m-%d') if pub_time_raw else "Recent"
+                except:
+                    pub_time = "Recent"
+            
+            # On ne garde que les articles valides
+            if title != 'No Title':
+                parsed_news.append({'title': title, 'link': link, 'date': pub_time})
+        return parsed_news
+    except Exception:
         return []
 
 def get_system_logs(lines=15):
@@ -163,25 +187,37 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🧠 Strategy Deep Dive" if not is_fr else "🧠 Stratégie Détaillée"
 ])
 
-
+# ==========================================
 # TAB 1: LIVE PERFORMANCE & DRAWDOWN
-
+# ==========================================
 with tab1:
     st.subheader("Account Evolution Tracker (Percentage Growth)" if not is_fr else "Évolution du Compte (Croissance en %)")
+    
+    desc_tab1 = "Track the live equity curve and risk metrics of your portfolio. The Drawdown chart below highlights the distance from the all-time high, allowing you to monitor the algorithm's resilience during market corrections." if not is_fr else "Suivez la courbe de performance et les métriques de risque de votre portefeuille. Le graphique de Drawdown ci-dessous met en évidence la chute depuis le dernier sommet historique, permettant d'évaluer la résilience de l'algorithme."
+    st.markdown(f"<div class='info-text'>{desc_tab1}</div>", unsafe_allow_html=True)
+
     timeframes = {"1 Week": "1W", "1 Month": "1M", "3 Months": "3M", "1 Year": "1A", "All Time": "all"} if not is_fr else {"1 Semaine": "1W", "1 Mois": "1M", "3 Mois": "3M", "1 An": "1A", "Tout l'historique": "all"}
     tf_sel = st.radio("Select Period:" if not is_fr else "Sélectionner la Période :", list(timeframes.keys()), horizontal=True, index=4)
     
     df_hist = fetch_portfolio_history(period=timeframes[tf_sel])
     if not df_hist.empty and len(df_hist) > 1:
-        # Calculate percentage change from the first valid data point
         df_hist['pct_growth'] = (df_hist['equity'] / df_hist['equity'].iloc[0] - 1) * 100
         
+        peak = df_hist['equity'].cummax()
+        drawdown = (df_hist['equity'] / peak - 1) * 100
+        max_dd = drawdown.min()
+        
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['pct_growth'], mode='lines', line=dict(color='#00E676', width=3), fill='tozeroy', fillcolor='rgba(0, 230, 118, 0.1)'))
-        fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Growth (%)" if not is_fr else "Croissance (%)", height=450, margin=dict(l=0, r=0, t=10, b=0))
+        fig.add_trace(go.Scatter(
+            x=df_hist.index, y=df_hist['pct_growth'], 
+            mode='lines', line=dict(color='#00E676', width=3), 
+            fill='tozeroy', fillcolor='rgba(0, 230, 118, 0.1)',
+            hovertemplate='%{x|%Y-%m-%d %H:%M}<br>Growth: %{y:.2f}%<extra></extra>' if not is_fr else '%{x|%d/%m/%Y %H:%M}<br>Croissance: %{y:.2f}%<extra></extra>'
+        ))
+        fig.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="", yaxis_title="Growth (%)" if not is_fr else "Croissance (%)", height=400, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig, use_container_width=True)
         
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         start_eq = df_hist['equity'].iloc[0]
         pl_dol = df_hist['equity'].iloc[-1] - start_eq
         c1.metric(f"Period P&L" if not is_fr else "P&L de la Période", f"${pl_dol:,.2f}", f"{(pl_dol / start_eq) * 100:.2f}%")
@@ -194,60 +230,111 @@ with tab1:
             c2.metric("Realized Volatility (Ann.)" if not is_fr else "Volatilité Réalisée (Ann.)", "Calibrating..." if not is_fr else "Calibration...")
             c3.metric("Live Sharpe Ratio" if not is_fr else "Ratio de Sharpe Actuel", "Calibrating..." if not is_fr else "Calibration...")
         
+        c4.metric("Max Drawdown", f"{max_dd:.2f}%")
+
+        st.markdown("#### Stress Test: Historical Drawdown" if not is_fr else "#### Test de Résistance : Drawdown Historique")
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=drawdown.index, y=drawdown, 
+            mode='lines', fill='tozeroy', 
+            line=dict(color='#FF3B30', width=2), fillcolor='rgba(255, 59, 48, 0.2)',
+            hovertemplate='DD: %{y:.2f}%<extra></extra>'
+        ))
+        fig_dd.update_layout(template='plotly_dark', height=200, margin=dict(t=10, b=10, l=0, r=0), yaxis=dict(title="Drawdown (%)", range=[min(-5.0, max_dd * 1.2), 0]))
+        st.plotly_chart(fig_dd, use_container_width=True)
+        
     else:
         st.info("Awaiting sufficient trading data to map the equity curve. If you just funded the account, the chart will appear tomorrow." if not is_fr else "En attente de données suffisantes pour tracer la courbe. Si le compte vient d'être financé, le graphique apparaîtra demain.")
 
 
+# ==========================================
 # TAB 2: PORTFOLIO MAP & ALLOCATION
-
+# ==========================================
 with tab2:
-    st.subheader("Interactive Allocation Map (Including Cash & Sectors)" if not is_fr else "Carte d'Allocation Interactive (Incluant Cash & Secteurs)")
-    pos_data = [{"Symbol": "CASH (Reserve)", "Market Value ($)": cash, "Weight (%)": (cash/equity)*100, "Unrealized P&L ($)": 0.0, "Unrealized P&L (%)": 0.0, "Current Price": 1.0, "Avg Entry": 1.0, "Sector": "Cash Reserve"}]
+    st.subheader("Interactive Allocation Map" if not is_fr else "Carte d'Allocation Interactive")
+    
+    desc_tab2 = "Explore your portfolio's structure. The Sunburst and Treemap charts provide a multi-layered view, breaking down your exposure from Sector level down to specific Assets." if not is_fr else "Explorez la structure de votre portefeuille. Les graphiques Sunburst et Treemap offrent une vue multicouche, décomposant votre exposition du Secteur global jusqu'à l'Actif spécifique."
+    st.markdown(f"<div class='info-text'>{desc_tab2}</div>", unsafe_allow_html=True)
+    
+    pos_data = [{"Symbol": "CASH", "Market Value ($)": cash, "Weight (%)": (cash/equity)*100, "Unrealized P&L ($)": 0.0, "Unrealized P&L (%)": 0.0, "Current Price": 1.0, "Avg Entry": 1.0, "Sector": "Cash Reserve"}]
     
     if positions:
         pos_data += [{"Symbol": p.symbol, "Market Value ($)": float(p.market_value), "Weight (%)": (float(p.market_value) / equity) * 100, "Unrealized P&L ($)": float(p.unrealized_pl), "Unrealized P&L (%)": float(p.unrealized_plpc) * 100, "Current Price": float(p.current_price), "Avg Entry": float(p.avg_entry_price), "Sector": SECTOR_MAP.get(p.symbol, 'Other')} for p in positions]
     
     df_pos = pd.DataFrame(pos_data)
-    # Sort by Market Value descending for a professional look
     df_pos = df_pos.sort_values(by="Market Value ($)", ascending=False).reset_index(drop=True)
     
-    view_type = st.radio("Visualization Mode:" if not is_fr else "Mode de Visualisation :", ["Nested Treemap (Sector > Asset)", "Donut Chart (Weight Distribution)"], horizontal=True)
+    active_pos_count = len(positions)
+    top_sector = df_pos.groupby('Sector')['Market Value ($)'].sum().idxmax()
+    top_asset = df_pos.iloc[0]['Symbol'] if active_pos_count > 0 else "CASH"
     
-    if view_type == "Nested Treemap (Sector > Asset)":
-        fig_map = px.treemap(df_pos, path=['Sector', 'Symbol'], values='Market Value ($)', color='Unrealized P&L (%)', color_continuous_scale='RdYlGn', color_continuous_midpoint=0, hover_data=['Weight (%)'])
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Active Assets" if not is_fr else "Actifs en cours", f"{active_pos_count}")
+    m2.metric("Dominant Sector" if not is_fr else "Secteur Dominant", top_sector)
+    m3.metric("Largest Holding" if not is_fr else "Plus Grosse Position", top_asset)
+    st.write("---")
+
+    view_type = st.radio("Visualization Mode:" if not is_fr else "Mode de Visualisation :", ["Sunburst Chart (Multi-Layer)", "Nested Treemap (Heatmap)"], horizontal=True)
+    
+    hover_temp = '<b>%{label}</b><br>Value: $%{value:,.2f}<br>P&L: %{color:.2f}%<extra></extra>' if not is_fr else '<b>%{label}</b><br>Valeur: $%{value:,.2f}<br>P&L: %{color:.2f}%<extra></extra>'
+
+    if view_type == "Sunburst Chart (Multi-Layer)":
+        fig_map = px.sunburst(df_pos, path=['Sector', 'Symbol'], values='Market Value ($)', color='Unrealized P&L (%)', color_continuous_scale='RdYlGn', color_continuous_midpoint=0, hover_data=['Weight (%)'])
+        fig_map.update_traces(hovertemplate=hover_temp)
     else:
-        fig_map = px.pie(df_pos, values='Market Value ($)', names='Sector', hole=0.4, hover_data=['Symbol', 'Unrealized P&L (%)'])
-        fig_map.update_traces(textposition='inside', textinfo='percent+label')
+        fig_map = px.treemap(df_pos, path=['Sector', 'Symbol'], values='Market Value ($)', color='Unrealized P&L (%)', color_continuous_scale='RdYlGn', color_continuous_midpoint=0, hover_data=['Weight (%)'])
+        fig_map.update_traces(hovertemplate=hover_temp)
         
-    fig_map.update_layout(template='plotly_dark', margin=dict(t=10, l=0, r=0, b=0), height=450)
+    fig_map.update_layout(template='plotly_dark', margin=dict(t=10, l=0, r=0, b=0), height=500)
     st.plotly_chart(fig_map, use_container_width=True)
     
-    st.markdown("### Full Holdings Ledger (Ranked by Importance)" if not is_fr else "### Grand Livre des Positions (Trié par Importance)")
-    st.dataframe(df_pos.style.format({"Market Value ($)": "${:,.2f}", "Weight (%)": "{:.2f}%", "Unrealized P&L ($)": "${:,.2f}", "Unrealized P&L (%)": "{:.2f}%", "Current Price": "${:,.2f}", "Avg Entry": "${:,.2f}"}).background_gradient(subset=['Unrealized P&L (%)'], cmap='RdYlGn'), use_container_width=True)
+    st.markdown("### Full Holdings Ledger" if not is_fr else "### Grand Livre des Positions")
+    
+    df_display = df_pos.copy()
+    if is_fr:
+        df_display = df_display.rename(columns={
+            "Symbol": "Symbole", 
+            "Market Value ($)": "Valeur ($)", 
+            "Weight (%)": "Poids (%)", 
+            "Unrealized P&L ($)": "P&L Latent ($)", 
+            "Unrealized P&L (%)": "P&L Latent (%)", 
+            "Current Price": "Prix Actuel", 
+            "Avg Entry": "Prix d'Entrée", 
+            "Sector": "Secteur"
+        })
+        st.dataframe(df_display.style.format({"Valeur ($)": "${:,.2f}", "Poids (%)": "{:.2f}%", "P&L Latent ($)": "${:,.2f}", "P&L Latent (%)": "{:.2f}%", "Prix Actuel": "${:,.2f}", "Prix d'Entrée": "${:,.2f}"}).background_gradient(subset=['P&L Latent (%)'], cmap='RdYlGn'), use_container_width=True)
+    else:
+        st.dataframe(df_display.style.format({"Market Value ($)": "${:,.2f}", "Weight (%)": "{:.2f}%", "Unrealized P&L ($)": "${:,.2f}", "Unrealized P&L (%)": "{:.2f}%", "Current Price": "${:,.2f}", "Avg Entry": "${:,.2f}"}).background_gradient(subset=['Unrealized P&L (%)'], cmap='RdYlGn'), use_container_width=True)
 
 
+# ==========================================
 # TAB 3: EXTREMES & ALPHA ATTRIBUTION
-
+# ==========================================
 with tab3:
     st.subheader("Performance Extremes & True Edge Discovery" if not is_fr else "Extrêmes de Performance & Découverte de l'Alpha")
     
+    desc_tab3 = "This tab separates your <b>Active Trades</b> (Sprint) from your <b>Historical Edge</b> (Marathon). It helps identify which assets generate consistent returns over time versus short-term momentum." if not is_fr else "Cet onglet sépare vos <b>Trades Actifs</b> (Sprint) de votre <b>Avantage Historique</b> (Marathon). Il aide à identifier les actifs générant de la performance sur le long terme par rapport aux fluctuations à court terme."
+    st.markdown(f"<div class='info-text'>{desc_tab3}</div>", unsafe_allow_html=True)
+    
     if positions:
-        df_real = df_pos[df_pos['Symbol'] != "CASH (Reserve)"].sort_values(by="Unrealized P&L (%)", ascending=False)
-        top_perf, worst_perf = df_real.iloc[0], df_real.iloc[-1]
-        
-        col_w, col_l = st.columns(2)
-        with col_w:
-            st.success("🟢 **BEST ACTIVE POSITION**" if not is_fr else "🟢 **MEILLEURE POSITION ACTIVE**")
-            st.metric(label=top_perf['Symbol'], value=f"${top_perf['Market Value ($)']:,.2f}", delta=f"{top_perf['Unrealized P&L (%)']:.2f}% (${top_perf['Unrealized P&L ($)']:,.2f})")
-            st.markdown(f"- **Sector:** {top_perf['Sector']} | **Weight:** {top_perf['Weight (%)']:.1f}%" if not is_fr else f"- **Secteur:** {top_perf['Sector']} | **Poids:** {top_perf['Weight (%)']:.1f}%")
-        with col_l:
-            st.error("🔴 **WORST ACTIVE POSITION**" if not is_fr else "🔴 **PIRE POSITION ACTIVE**")
-            st.metric(label=worst_perf['Symbol'], value=f"${worst_perf['Market Value ($)']:,.2f}", delta=f"{worst_perf['Unrealized P&L (%)']:.2f}% (${worst_perf['Unrealized P&L ($)']:,.2f})")
-            st.markdown(f"- **Sector:** {worst_perf['Sector']} | **Weight:** {worst_perf['Weight (%)']:.1f}%" if not is_fr else f"- **Secteur:** {worst_perf['Sector']} | **Poids:** {worst_perf['Weight (%)']:.1f}%")
+        df_real = df_pos[df_pos['Symbol'] != "CASH"].sort_values(by="Unrealized P&L (%)", ascending=False)
+        if not df_real.empty:
+            top_perf, worst_perf = df_real.iloc[0], df_real.iloc[-1]
+            
+            col_w, col_l = st.columns(2)
+            with col_w:
+                st.success("🟢 **BEST ACTIVE POSITION (Sprint)**" if not is_fr else "🟢 **MEILLEURE POSITION ACTIVE (Sprint)**")
+                st.metric(label=top_perf['Symbol'], value=f"${top_perf['Market Value ($)']:,.2f}", delta=f"{top_perf['Unrealized P&L (%)']:.2f}% (${top_perf['Unrealized P&L ($)']:,.2f})")
+                st.markdown(f"- **Sector:** {top_perf['Sector']} | **Weight:** {top_perf['Weight (%)']:.1f}%" if not is_fr else f"- **Secteur:** {top_perf['Sector']} | **Poids:** {top_perf['Weight (%)']:.1f}%")
+            with col_l:
+                st.error("🔴 **WORST ACTIVE POSITION (Sprint)**" if not is_fr else "🔴 **PIRE POSITION ACTIVE (Sprint)**")
+                st.metric(label=worst_perf['Symbol'], value=f"${worst_perf['Market Value ($)']:,.2f}", delta=f"{worst_perf['Unrealized P&L (%)']:.2f}% (${worst_perf['Unrealized P&L ($)']:,.2f})")
+                st.markdown(f"- **Sector:** {worst_perf['Sector']} | **Weight:** {worst_perf['Weight (%)']:.1f}%" if not is_fr else f"- **Secteur:** {worst_perf['Sector']} | **Poids:** {worst_perf['Weight (%)']:.1f}%")
             
     st.write("---")
-    st.markdown("#### All-Time Profit by Asset" if not is_fr else "#### Profit Total par Actif")
-    st.caption("Identifies the real drivers of your edge. Assets consistently losing money over time should be considered for exclusion from the universe." if not is_fr else "Identifie les vrais moteurs de performance. Les actifs perdant systématiquement de l'argent devraient être exclus de l'univers.")
+    st.markdown("#### All-Time Profit by Asset (Marathon)" if not is_fr else "#### Profit Total par Actif (Marathon)")
+    st.caption("Combines realized and unrealized gains. Identifies the real drivers of your edge." if not is_fr else "Combine les gains réalisés et non réalisés. Identifie les vrais moteurs de votre performance.")
+    
     activities = fetch_trade_activities()
     if activities:
         df_act = pd.DataFrame(activities)
@@ -258,17 +345,26 @@ with tab3:
             pnl_tracker[p.symbol] = pnl_tracker.get(p.symbol, 0) + float(p.market_value)
             
         pnl_tracker = pnl_tracker.sort_values(ascending=True)
-        fig_attr = px.bar(pnl_tracker, x=pnl_tracker.values, y=pnl_tracker.index, orientation='h', color=pnl_tracker.values, color_continuous_scale='RdYlGn')
+        
+        fig_attr = px.bar(pnl_tracker, x=pnl_tracker.values, y=pnl_tracker.index, orientation='h', color=pnl_tracker.values, color_continuous_scale='RdYlGn', color_continuous_midpoint=0)
+        
+        hover_temp_bar = '<b>%{y}</b><br>Net P&L: $%{x:,.2f}<extra></extra>' if not is_fr else '<b>%{y}</b><br>P&L Net: $%{x:,.2f}<extra></extra>'
+        fig_attr.update_traces(hovertemplate=hover_temp_bar)
+        
         fig_attr.update_layout(template='plotly_dark', height=400, xaxis_title="Net Profit/Loss ($)" if not is_fr else "Profit/Perte Net ($)", yaxis_title="", margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_attr, use_container_width=True)
     else:
         st.info("Not enough history to compute alpha attribution." if not is_fr else "Pas assez d'historique pour calculer l'attribution d'alpha.")
 
 
+# ==========================================
 # TAB 4: EXECUTION TAPE & NEWS
-
+# ==========================================
 with tab4:
     st.subheader("🧾 " + ("Journal d'Exécution, Logs & Actualités" if is_fr else "Execution Ledger, Logs & News"))
+    
+    desc_tab4 = "Monitor the algorithm's pulse. This tab provides a transparent audit trail of raw market orders, live system logs for technical health, and real-time news for your top holdings to understand the macro context." if not is_fr else "Surveillez le pouls de l'algorithme. Cet onglet fournit une piste d'audit transparente des ordres de marché, les logs du système en direct pour surveiller sa santé technique, et les actualités en temps réel de vos principales positions."
+    st.markdown(f"<div class='info-text'>{desc_tab4}</div>", unsafe_allow_html=True)
     
     col_tape, col_news = st.columns([1.2, 1])
     
@@ -277,11 +373,15 @@ with tab4:
         st.markdown("### 📝 " + ("Dernières Transactions" if is_fr else "Recent Market Orders"))
         activities = fetch_trade_activities()
         if activities:
-            logs = [{"Date": pd.to_datetime(a['date']).strftime('%Y-%m-%d %H:%M'), 
-                     "Action": "🟢 ACHAT" if a['side'] == 'buy' and is_fr else "🟢 BUY" if a['side'] == 'buy' else ("🔴 VENTE" if is_fr else "🔴 SELL"), 
-                     "Ticker": a['symbol'], 
-                     "Price": f"${a['price']:.2f}", 
-                     "Qty": a['qty']} for a in activities[:15]]
+            logs = []
+            for a in activities[:15]:
+                logs.append({
+                    "Date": pd.to_datetime(a['date']).strftime('%Y-%m-%d %H:%M'), 
+                    "Action": "🟢 ACHAT" if a['side'] == 'buy' and is_fr else "🟢 BUY" if a['side'] == 'buy' else ("🔴 VENTE" if is_fr else "🔴 SELL"), 
+                    "Symbole" if is_fr else "Ticker": a['symbol'], 
+                    "Prix" if is_fr else "Price": f"${a['price']:.2f}", 
+                    "Qté" if is_fr else "Qty": a['qty']
+                })
             st.dataframe(pd.DataFrame(logs), use_container_width=True, hide_index=True)
         else:
             st.write("Aucune transaction exécutée." if is_fr else "No executed trades yet.")
@@ -295,31 +395,29 @@ with tab4:
         st.code(sys_logs, language="bash")
 
     with col_news:
-        # NEWS FEED
         st.markdown("### 📡 " + ("Contexte Macro (Top 3 Actifs)" if is_fr else "Market Context (Top 3 Holdings)"))
         if positions:
-            # On prend les 3 plus grosses positions pour chercher les news
             top_3 = sorted(positions, key=lambda x: float(x.market_value), reverse=True)[:3]
             for p in top_3:
                 st.markdown(f"**{'Actualités pour' if is_fr else 'News for'} {p.symbol}**")
                 news_items = get_recent_news(p.symbol)
                 if news_items:
                     for n in news_items:
-                        # Safe extraction of publish time
-                        pub_time_raw = n.get('providerPublishTime')
-                        pub_time = datetime.fromtimestamp(pub_time_raw).strftime('%Y-%m-%d') if pub_time_raw else "Recent"
-                        st.markdown(f"- [{n.get('title', 'No Title')}]({n.get('link', '#')}) *(Yahoo Finance, {pub_time})*")
+                        st.markdown(f"- [{n['title']}]({n['link']}) *(Yahoo Finance, {n['date']})*")
                 else:
                     st.caption("Aucune actualité récente." if is_fr else "No recent news found.")
                 st.write("---")
         else:
             st.info("Portefeuille en Cash. Aucune actualité spécifique." if is_fr else "Portfolio in Cash. No specific news.")
 
+# ==========================================
 # TAB 5: MONTE CARLO FORECAST
-
+# ==========================================
 with tab5:
     st.subheader("Stochastic Portfolio Projection (1 Year)" if not is_fr else "Projection Stochastique du Portefeuille (1 An)")
-    st.write("Simulating 100 future paths based on audited institutional metrics: **25.03% CAGR** and **16.29% Volatility**." if not is_fr else "Simulation de 100 trajectoires futures basées sur les métriques institutionnelles auditées : **CAGR 25.03%** et **Volatilité 16.29%**.")
+    
+    desc_tab5 = "This Monte Carlo simulation runs 100 random price paths for the next 252 trading days. It uses the historical volatility (16.29%) and CAGR (25.03%) from the strategy's audited backtest to project potential future equity. The top line represents a highly optimistic scenario (top 5%), the middle is the median expectation, and the bottom is the pessimistic scenario (bottom 5%)." if not is_fr else "Cette simulation Monte Carlo génère 100 trajectoires de prix aléatoires pour les 252 prochains jours de bourse. Elle utilise la volatilité historique (16.29%) et le CAGR (25.03%) audités du backtest pour projeter le capital futur. La ligne supérieure représente le scénario très optimiste (top 5%), la ligne du milieu l'attente médiane, et la ligne inférieure le scénario pessimiste (bottom 5%)."
+    st.markdown(f"<div class='info-text'>{desc_tab5}</div>", unsafe_allow_html=True)
     
     cagr_exact, vol_exact, days, simulations = 0.2503, 0.1629, 252, 100
     daily_drift = (cagr_exact - 0.5 * vol_exact**2) / days
@@ -352,36 +450,80 @@ with tab5:
     c2.metric("Median Target (+1yr)" if not is_fr else "Cible Médiane (+1an)", f"${mean_path.iloc[-1]:,.0f}")
     c3.metric("Pessimistic Target (+1yr)" if not is_fr else "Cible Pessimiste (+1an)", f"${bot_path.iloc[-1]:,.0f}")
 
-
+# ==========================================
 # TAB 6: GLOBAL RADAR
-
+# ==========================================
 with tab6:
-    st.subheader("Live Score Radar (Momentum / Volatility)" if not is_fr else "Radar de Scores en Direct (Momentum / Volatilité)")
-    st.write("Scanning the universe for the most stable uptrends." if not is_fr else "Analyse de l'univers à la recherche des tendances les plus stables.")
-    universe = ['NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'AAPL', 'TSLA', 'SMH', 'LLY', 'UNH', 'XLE', 'COPX', 'URA', 'ITA', 'XLI', 'RTX', 'BTC-USD', 'SPY']
+    st.subheader("Live Score Radar" if not is_fr else "Radar de Scores en Direct")
     
-    with st.spinner("Analyzing market matrix..." if not is_fr else "Analyse de la matrice du marché..."):
-        start_d = (datetime.now() - timedelta(days=200)).strftime('%Y-%m-%d')
-        df_mkt = fetch_radar_data(universe, start_d)
-        if not df_mkt.empty:
-            scores = []
-            for t in universe:
-                if t in df_mkt.columns:
-                    p = df_mkt[t]
-                    if len(p) > 60:
-                        mom = (p.iloc[-1] / p.iloc[-60]) - 1
-                        vol = p.pct_change().std() * np.sqrt(252)
-                        scores.append({"Asset": t, "Sector": SECTOR_MAP.get(t, 'Other'), "Momentum (3M)": mom, "Volatility": vol, "Score": mom / vol if vol > 0 else 0})
-                        
-            df_scores = pd.DataFrame(scores).sort_values("Score", ascending=False).reset_index(drop=True)
-            df_scores.index += 1
-            st.dataframe(df_scores.style.format({"Momentum (3M)": "{:.2%}", "Volatility": "{:.2%}", "Score": "{:.2f}"}).background_gradient(subset=['Score'], cmap='RdYlGn'), use_container_width=True)
-        else:
-            st.error("Could not load radar data. YFinance API might be rate-limited." if not is_fr else "Impossible de charger les données du radar. L'API YFinance a peut-être atteint sa limite de requêtes.")
+    # On définit l'univers ici pour éviter le NameError
+    radar_universe = ['NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'AAPL', 'TSLA', 'SMH', 'LLY', 'UNH', 'XLE', 'COPX', 'URA', 'ITA', 'XLI', 'RTX', 'BTC-USD', 'SPY']
+    
+    desc_tab6 = "This radar mathematically ranks assets by dividing their 6-month Momentum by their 3-month Volatility." if not is_fr else "Ce radar classe mathématiquement les actifs en divisant leur Momentum sur 6 mois par leur Volatilité sur 3 mois."
+    st.markdown(f"<div class='info-text'>{desc_tab6}</div>", unsafe_allow_html=True)
 
+    col_chart, col_data = st.columns([1.5, 1])
 
+    with col_chart:
+        st.markdown("#### 📊 Technical Analysis")
+        tv_widget_html = """
+        <div class="tradingview-widget-container" style="height:600px;width:100%;">
+          <div id="tradingview_chart" style="height:100%;width:100%;"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({
+            "autosize": true,
+            "symbol": "SPY",
+            "interval": "D",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "withdateranges": true,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_chart"
+          });
+          </script>
+        </div>
+        """
+        st.components.v1.html(tv_widget_html, height=620)
+
+    with col_data:
+        st.markdown("#### 🎯 Momentum Ranking")
+        with st.spinner("Analyzing market matrix..."):
+            start_d = (datetime.now() - timedelta(days=200)).strftime('%Y-%m-%d')
+            # On utilise radar_universe qu'on vient de définir
+            df_mkt = fetch_radar_data(radar_universe, start_d)
+            
+            if not df_mkt.empty:
+                scores = []
+                for t in radar_universe:
+                    if t in df_mkt.columns:
+                        p = df_mkt[t]
+                        if len(p) > 60:
+                            mom = (p.iloc[-1] / p.iloc[-60]) - 1
+                            vol = p.pct_change().std() * np.sqrt(252)
+                            scores.append({
+                                "Asset" if not is_fr else "Actif": t, 
+                                "Score": mom / vol if vol > 0 else 0
+                            })
+                
+                df_scores = pd.DataFrame(scores).sort_values("Score", ascending=False).reset_index(drop=True)
+                df_scores.index += 1
+                
+                st.dataframe(
+                    df_scores.style.format({"Score": "{:.2f}"})
+                    .background_gradient(subset=['Score'], cmap='RdYlGn'), 
+                    use_container_width=True,
+                    height=580 
+                )
+
+# ==========================================
 # TAB 7: STRATEGY DEEP DIVE (THEORY & LOGIC)
-
+# ==========================================
 with tab7:
     if not is_fr:
         st.markdown("""
