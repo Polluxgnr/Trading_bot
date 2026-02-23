@@ -305,8 +305,10 @@ with tab4:
                 news_items = get_recent_news(p.symbol)
                 if news_items:
                     for n in news_items:
-                        pub_time = datetime.fromtimestamp(n['providerPublishTime']).strftime('%Y-%m-%d')
-                        st.markdown(f"- [{n['title']}]({n['link']}) *(Yahoo Finance, {pub_time})*")
+                        # Safe extraction of publish time
+                        pub_time_raw = n.get('providerPublishTime')
+                        pub_time = datetime.fromtimestamp(pub_time_raw).strftime('%Y-%m-%d') if pub_time_raw else "Recent"
+                        st.markdown(f"- [{n.get('title', 'No Title')}]({n.get('link', '#')}) *(Yahoo Finance, {pub_time})*")
                 else:
                     st.caption("Aucune actualité récente." if is_fr else "No recent news found.")
                 st.write("---")
