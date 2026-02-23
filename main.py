@@ -1,15 +1,8 @@
-"""
-=============================================================================
-🛡️ AEGIS PRIME - QUANTITATIVE KERNEL (INSTITUTIONAL VF)
-    Architecture: Autonomous Global Macro (Object-Oriented)
-    Risk Management: Decoupled (Max 8% Growth / Uncapped Defense)
-    Leverage: Strictly Disabled (Max Gross Exposure: 98%)
-=============================================================================
-"""
 import os, time, logging, json, requests, io, schedule, pytz
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+import yfinance as yf
 import matplotlib.pyplot as plt
 import alpaca_trade_api as tradeapi
 from alpaca_trade_api.rest import TimeFrame
@@ -17,14 +10,14 @@ from mistralai import Mistral
 from dotenv import load_dotenv
 from functools import wraps
 
-# --- SYSTEM INITIALIZATION ---
+#SYSTEM INITIALIZATION
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s',
                     handlers=[logging.FileHandler("aegis_production.log"), logging.StreamHandler()])
 logger = logging.getLogger("AEGIS_KERNEL")
 NY_TZ = pytz.timezone('US/Eastern')
 
-# --- CONFIGURATION & LIMITES INSTITUTIONNELLES ---
+#CONFIGURATION & LIMITES INSTITUTIONNELLES
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 MAX_SECTOR_WEIGHT = 0.25  # 25% max par secteur offensif
 MAX_POSITION_SIZE = 0.08  # 8% max par actif offensif
@@ -43,7 +36,7 @@ DEFENSE_ASSETS = ['GLD', 'TLT', 'SHV']
 UNIVERSE = list(set(ATTACK_ASSETS + DEFENSE_ASSETS + ['SPY']))
 
 
-# --- UTILITAIRES & REPORTING ---
+#UTILITAIRES & REPORTING
 def retry_network(max_retries=3):
     def decorator(func):
         @wraps(func)
@@ -111,13 +104,17 @@ class DiscordReporter:
         
         payload = {'payload_json': json.dumps({"embeds": [embed]})}
         if has_chart:
-            requests.post(self.webhook_url, data=payload, files={'file': ('chart.png', buf, 'image/png')})
+            res = requests.post(self.webhook_url, data=payload, files={'file': ('chart.png', buf, 'image/png')})
         else:
-            requests.post(self.webhook_url, json={"embeds": [embed]})
-        logger.info("✅ Discord institutional report broadcasted.")
+            res = requests.post(self.webhook_url, json={"embeds": [embed]})
+            
+        if res.status_code >= 400:
+            logger.error(f"❌ Erreur Discord API ({res.status_code}): {res.text}")
+        else:
+            logger.info("✅ Discord institutional report broadcasted.")
 
 
-# --- MOTEUR QUANTITATIF & EXÉCUTION ---
+#MOTEUR QUANTITATIF & EXÉCUTION
 class AegisEngine:
     def __init__(self):
         self.api = tradeapi.REST(os.getenv("ALPACA_API_KEY"), os.getenv("ALPACA_SECRET_KEY"), os.getenv("ALPACA_BASE_URL"), 'v2')
@@ -218,22 +215,30 @@ class AegisEngine:
         
         acc = self.api.get_account()
         equity = float(acc.equity)
-        positions = {p.symbol: float(p.market_value) for p in self.api.list_positions()}
+        # On récupère la valeur ET la quantité réelle exacte possédée
+        pos_data = {p.symbol: {"val": float(p.market_value), "qty": float(p.qty)} for p in self.api.list_positions()}
         trades = []
 
         # 1. SELL PHASE (Freeing Capital)
-        for sym, c_val in positions.items():
+        for sym, p_info in pos_data.items():
+            c_val = p_info["val"]
+            c_qty = p_info["qty"]
             t_val = equity * target_weights.get(sym, 0)
             drift = (c_val/equity) - target_weights.get(sym, 0)
             
             if drift > 0.03 or target_weights.get(sym, 0) == 0:
                 diff = c_val - t_val
                 try:
-                    price = float(self.api.get_latest_trade(sym).price)
-                    qty = round(diff / price, 4)
-                    if qty > 0.001:
-                        self.api.submit_order(sym, qty=qty, side='sell', type='market', time_in_force='day')
-                        trades.append(f"🔴 SOLD ~${diff:,.0f} of {sym}")
+                    if target_weights.get(sym, 0) == 0:
+                        self.api.close_position(sym)
+                        trades.append(f"🔴 LIQUIDATED {sym}")
+                    else:
+                        price = float(self.api.get_latest_trade(sym).price)
+                        # On s'assure de ne jamais vendre plus que la quantité possédée
+                        qty = min(round(diff / price, 4), c_qty)
+                        if qty > 0.001:
+                            self.api.submit_order(sym, qty=qty, side='sell', type='market', time_in_force='day')
+                            trades.append(f"🔴 SOLD ~${diff:,.0f} of {sym}")
                 except Exception as e: logger.error(f"Sell error on {sym}: {e}")
 
         time.sleep(5) # Wait for Alpaca settlement
@@ -242,10 +247,11 @@ class AegisEngine:
         bp = float(self.api.get_account().buying_power)
         for sym, w in target_weights.items():
             t_val = equity * w
-            c_val = positions.get(sym, 0)
+            c_val = pos_data.get(sym, {}).get("val", 0)
             
             if w - (c_val/equity) > 0.03:
-                notional = min(round(t_val - c_val, 2), bp - 5.0) # $5 safety buffer
+                # Arrondi strict à 2 décimales pour l'API Alpaca
+                notional = round(min(t_val - c_val, bp - 5.0), 2)
                 if notional > 10:
                     try:
                         self.api.submit_order(sym, notional=notional, side='buy', type='market', time_in_force='day')
@@ -273,7 +279,7 @@ class AegisEngine:
         self.execute_portfolio(final_target, regime)
         logger.info("CYCLE COMPLETE.")
 
-# --- RUNNER ---
+#RUNNER
 if __name__ == "__main__":
     bot = AegisEngine()
     
@@ -288,4 +294,3 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(60)
-
