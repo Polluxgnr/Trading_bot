@@ -418,7 +418,9 @@ with tab5:
     desc_tab5 = "This Monte Carlo simulation runs 100 random price paths for the next 252 trading days. It uses the historical volatility (23.81%) and CAGR (32.57%) from the V-Chimera audited backtest to project potential future equity. The top line represents a highly optimistic scenario (top 5%), the middle is the median expectation, and the bottom is the pessimistic scenario (bottom 5%)." if not is_fr else "Cette simulation Monte Carlo génère 100 trajectoires de prix aléatoires pour les 252 prochains jours de bourse. Elle utilise la volatilité historique (23.81%) et le CAGR (32.57%) audités du backtest V-Chimera pour projeter le capital futur. La ligne supérieure représente le scénario très optimiste (top 5%), la ligne du milieu l'attente médiane, et la ligne inférieure le scénario pessimiste (bottom 5%)."
     st.markdown(f"<div class='info-text'>{desc_tab5}</div>", unsafe_allow_html=True)
     
+    # Mise à jour avec les métriques V-Chimera exactes
     cagr_exact, vol_exact, days, simulations = 0.3257, 0.2381, 252, 100
+    
     daily_drift = (cagr_exact - 0.5 * vol_exact**2) / days
     daily_vol = vol_exact / np.sqrt(days)
     
@@ -430,6 +432,8 @@ with tab5:
         
     df_mc = pd.DataFrame(paths)
     fig_mc = go.Figure()
+    
+    # Tracé des 100 trajectoires aléatoires
     for col in df_mc.columns:
         fig_mc.add_trace(go.Scatter(x=df_mc.index, y=df_mc[col], mode='lines', line=dict(width=1, color='rgba(0, 230, 118, 0.05)'), showlegend=False))
         
@@ -437,6 +441,7 @@ with tab5:
     top_path = df_mc.quantile(0.95, axis=1)
     bot_path = df_mc.quantile(0.05, axis=1)
     
+    # Lignes statistiques (Médiane, Optimiste, Pessimiste)
     fig_mc.add_trace(go.Scatter(x=df_mc.index, y=mean_path, mode='lines', line=dict(width=3, color='white'), name='Median Expected' if not is_fr else 'Médiane Attendue'))
     fig_mc.add_trace(go.Scatter(x=df_mc.index, y=top_path, mode='lines', line=dict(width=2, color='#00E676', dash='dash'), name='Optimistic (Top 5%)' if not is_fr else 'Optimiste (Top 5%)'))
     fig_mc.add_trace(go.Scatter(x=df_mc.index, y=bot_path, mode='lines', line=dict(width=2, color='#FF3B30', dash='dash'), name='Pessimistic (Bottom 5%)' if not is_fr else 'Pessimiste (Derniers 5%)'))
@@ -448,11 +453,117 @@ with tab5:
     c1.metric("Optimistic Target (+1yr)" if not is_fr else "Cible Optimiste (+1an)", f"${top_path.iloc[-1]:,.0f}")
     c2.metric("Median Target (+1yr)" if not is_fr else "Cible Médiane (+1an)", f"${mean_path.iloc[-1]:,.0f}")
     c3.metric("Pessimistic Target (+1yr)" if not is_fr else "Cible Pessimiste (+1an)", f"${bot_path.iloc[-1]:,.0f}")
+    # ==========================================
+# TAB 6: GLOBAL RADAR (V-CHIMERA ALPHA ENGINE)
+# ==========================================
+with tab6:
+    st.subheader("Live Score Radar (V-Chimera Alpha)" if not is_fr else "Radar de Scores en Direct (Alpha V-Chimera)")
+    
+    # Updated Universe to match V-Chimera EXACTLY
+    radar_universe = [
+        'QQQ', 'SMH', 'XLK', 'NVDA', 'MSFT', 'AAPL', 
+        'XLV', 'LLY', 'UNH', 
+        'XLI', 'ITA', 'RTX', 
+        'XLE', 'URA', 'COPX', 
+        'EEM', 'VEA', 
+        'IBIT', 'MTUM', 'BTC-USD',
+        'XLP', 'XLU', 'VNQ', 'DBC', 
+        'GLD', 'TLT', 'IEF', 'SHY', 'SPY'
+    ]
+    
+    desc_tab6 = "This radar mathematically ranks assets using the exact V-Chimera algorithm: evaluating <b>Trend Quality ($R^2$)</b>, <b>Risk-Adjusted Momentum (Sharpe)</b>, and <b>12-Month Momentum</b>. Assets with the highest scores possess the cleanest, most resilient uptrends." if not is_fr else "Ce radar classe mathématiquement les actifs en utilisant l'algorithme exact V-Chimera : évaluation de la <b>Qualité de Tendance ($R^2$)</b>, du <b>Momentum ajusté au risque (Sharpe)</b>, et du <b>Momentum sur 12 mois</b>. Les actifs avec les meilleurs scores possèdent les tendances haussières les plus propres et résilientes."
+    st.markdown(f"<div class='info-text'>{desc_tab6}</div>", unsafe_allow_html=True)
 
-# ==========================================
-# TAB 6: GLOBAL RADAR
-# ==========================================
-# (Keep your existing Tab 6 code here)
+    col_chart, col_data = st.columns([1.5, 1])
+
+    with col_chart:
+        st.markdown("#### 📊 Technical Analysis" if not is_fr else "#### 📊 Analyse Technique")
+        tv_widget_html = """
+        <div class="tradingview-widget-container" style="height:600px;width:100%;">
+          <div id="tradingview_chart" style="height:100%;width:100%;"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({
+            "autosize": true,
+            "symbol": "SPY",
+            "interval": "D",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "withdateranges": true,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_chart"
+          });
+          </script>
+        </div>
+        """
+        st.components.v1.html(tv_widget_html, height=620)
+
+    with col_data:
+        st.markdown("#### 🎯 V-Chimera Ranking" if not is_fr else "#### 🎯 Classement V-Chimera")
+        with st.spinner("Calculating Trend Quality Matrix..." if not is_fr else "Calcul de la Matrice de Qualité de Tendance..."):
+            start_d = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
+            df_mkt = fetch_radar_data(radar_universe, start_d)
+            
+            if not df_mkt.empty:
+                from scipy.stats import linregress
+                
+                scores = []
+                for t in radar_universe:
+                    if t in df_mkt.columns:
+                        p = df_mkt[t].dropna()
+                        if len(p) > 252:
+                            # 1. Trend Quality (90 days)
+                            y = p.tail(90).values
+                            if y[0] != 0 and not np.isnan(y[0]):
+                                y_norm = y / y[0]
+                                slope, _, r_val, _, _ = linregress(np.arange(len(y_norm)), y_norm)
+                                tq = (slope * 252) * (r_val ** 2)
+                            else:
+                                tq = 0.0
+                                
+                            # 2. Risk-Adjusted Momentum (Sharpe)
+                            mom6 = (p.iloc[-1] / p.iloc[-126]) - 1
+                            vol3 = p.pct_change().tail(63).std() * np.sqrt(252)
+                            sharp = mom6 / vol3 if vol3 > 1e-6 else 0.0
+                            
+                            # 3. Long-Term Momentum
+                            mom12 = (p.iloc[-1] / p.iloc[-252]) - 1
+                            
+                            # Calculate Final V-Chimera Score
+                            if mom6 > 0 and mom12 > 0:
+                                final_score = (0.4 * tq) + (0.4 * sharp) + (0.2 * mom12)
+                            else:
+                                final_score = 0.0 # Excluded by Dual Momentum Filter
+                                
+                            scores.append({
+                                "Asset" if not is_fr else "Actif": t,
+                                "Sector" if not is_fr else "Secteur": SECTOR_MAP.get(t, 'Other'),
+                                "Score V-Chimera": final_score,
+                                "Trend Quality": tq,
+                                "Sharpe (6M)": sharp
+                            })
+                
+                df_scores = pd.DataFrame(scores)
+                if not df_scores.empty:
+                    df_scores = df_scores.sort_values("Score V-Chimera", ascending=False).reset_index(drop=True)
+                    df_scores.index += 1
+                    
+                    st.dataframe(
+                        df_scores.style.format({
+                            "Score V-Chimera": "{:.2f}",
+                            "Trend Quality": "{:.2f}",
+                            "Sharpe (6M)": "{:.2f}"
+                        }).background_gradient(subset=['Score V-Chimera'], cmap='RdYlGn'), 
+                        use_container_width=True,
+                        height=580 
+                    )
+            else:
+                st.error("Matrix offline. Awaiting data." if not is_fr else "Matrice hors ligne. En attente de données.")
 
 # ==========================================
 # TAB 7: STRATEGY DEEP DIVE (THEORY & LOGIC)
@@ -466,29 +577,29 @@ with tab7:
         
         ### 🌍 Phase 1: The Regime Sentinel (Two-Speed Hysteresis)
         Capital preservation is the absolute priority. Before seeking yield, the algorithm evaluates the structural integrity of the broader market.
-        - **Indicators:** S&P 500 (SPY) vs its 200-day and 50-day Simple Moving Averages, combined with a 60-day drawdown tracker.
-        - **Action:** If the SPY is below both moving averages and experiencing a significant drawdown, the system initiates **Bunker Mode**.
+        - **Indicators:** S&P 500 (SPY) vs its 200-day and 50-day Simple Moving Averages, combined with a 60-day maximum drawdown tracker.
+        - **Action:** If the SPY closes below both moving averages and experiences a sudden drop > 5% from its 60-day high, the system declares a structural breakdown and initiates **Bunker Mode**.
         
         ### 🔥 Phase 2: The Inflation Sentinel
-        During Bunker Mode, the system must decide *where* to hide. It analyzes the broader commodity market (DBC) to determine the nature of the crisis.
-        - **Deflationary Crisis (e.g., 2008, 2020):** Heavy allocation to Long-Term Treasuries (TLT), which surge as central banks cut rates.
-        - **Inflationary Shock (e.g., 2022):** Treasuries are abandoned. Capital rotates heavily into Gold (GLD), Commodities (DBC), and Cash (SHY).
+        During Bunker Mode, the system must decide *where* to hide. It analyzes the broader commodity market (DBC) to determine the macroeconomic nature of the crisis.
+        - **Deflationary Crisis (e.g., 2008, 2020):** Heavy allocation to Long-Term Treasuries (TLT), which surge as central banks panic-cut interest rates.
+        - **Inflationary Shock (e.g., 2022):** Treasuries are mathematically abandoned. Capital rotates heavily into Gold (GLD), Commodities (DBC), and Short-Term Cash (SHY).
         
         ### 🌡️ Phase 3: Adaptive Volatility & The Kinetic Brake
-        When the market is in a confirmed uptrend, the system dictates the balance between Offense and Defense.
+        When the market is in a confirmed uptrend, the system dictates the balance between Offense and Defense based on market nervousness.
         - **Volatility Cap:** The historical percentile rank of the SPY's 21-day volatility dynamically scales the maximum offensive exposure (from 97% down to 30%).
-        - **Kinetic Brake:** A severe failsafe. If the live portfolio experiences an intra-strategy drawdown greater than 10%, offensive exposure is slashed by 50%. If the drawdown exceeds 15%, offense is slashed by 80%, forcing the portfolio into defensive assets to stop the bleeding.
+        - **The Kinetic Brake:** A severe live-failsafe. If the live portfolio experiences an intra-strategy drawdown greater than 10%, offensive exposure is slashed by 50%. If the drawdown exceeds 15%, offense is slashed by 80%, forcing the portfolio into defensive assets to mechanically stop the bleeding.
         
-        ### 🎯 Phase 4: Asset Selection (Score-Convex Rank)
-        When permitted to attack, the Growth Engine scans the offensive universe (Tech, Healthcare, Alpha proxies).
-        - **Trend Quality Filter:** Assets must exhibit a clean, straight-line uptrend, measured by the $R^2$ of their linear regression. 
-        - **Dual Momentum:** It demands positive momentum across both 6-month and 12-month timeframes.
-        - **Allocation:** Capital is distributed among the top 7 assets using a convex blend: 60% based on their rank conviction, and 40% smoothed by Inverse Volatility Risk Parity.
+        ### 🎯 Phase 4: Alpha Selection (Score-Convex Rank)
+        When permitted to attack, the Growth Engine scans the offensive universe (Tech, Healthcare, EM, Alpha proxies).
+        - **Trend Quality Filter ($R^2$):** Assets must exhibit a clean, straight-line uptrend, measured by the statistical $R^2$ of their linear regression. 
+        - **Dual Momentum:** It strictly demands positive momentum across both 6-month and 12-month timeframes.
+        - **Allocation:** Capital is distributed among the top 7 assets using a convex blend: 60% based on their sheer rank conviction, and 40% smoothed by Inverse Volatility Risk Parity (giving more weight to stable assets).
         
         ### ✂️ Phase 5: Institutional Risk Management
         The system applies asymmetrical constraints to mathematically prevent catastrophic wipeouts:
         - **Strict Offense Caps:** No single offensive asset can exceed **12%** of the portfolio. No single sector can exceed **28%**.
-        - **Zero Leverage Protocol:** The gross exposure is mathematically hard-capped at **98%**, maintaining a permanent 2% cash buffer. The system is physically incapable of borrowing money, completely eliminating margin call risk.
+        - **Zero Leverage Protocol:** The gross exposure is mathematically hard-capped at **95%**, maintaining a permanent **5% cash buffer**. This provides the necessary margin for fractional execution limits, ensures zero debt, and completely eliminates the mathematical possibility of a margin call.
         """)
     else:
         st.markdown("""
@@ -498,27 +609,28 @@ with tab7:
         
         ### 🌍 Phase 1 : La Sentinelle de Régime (Hystérésis à Deux Vitesses)
         La préservation du capital est la priorité absolue. Avant de chercher du rendement, l'algorithme évalue l'intégrité structurelle du marché global.
-        - **Indicateurs :** Le S&P 500 (SPY) par rapport à ses moyennes mobiles à 200 jours et 50 jours, combiné à un traqueur de drawdown sur 60 jours.
-        - **Action :** Si le SPY est sous ces deux moyennes mobiles et subit un drawdown significatif, le système déclenche le **Bunker Mode**.
+        - **Indicateurs :** Le S&P 500 (SPY) par rapport à ses moyennes mobiles simples à 200 jours et 50 jours, combiné à un traqueur de drawdown sur 60 jours.
+        - **Action :** Si le SPY clôture sous ces deux moyennes mobiles et subit une chute soudaine > 5% par rapport à son plus haut des 60 derniers jours, le système déclare une rupture structurelle et déclenche le **Bunker Mode**.
         
         ### 🔥 Phase 2 : La Sentinelle d'Inflation
         Pendant le Bunker Mode, le système doit décider *où* se cacher. Il analyse le marché des matières premières (DBC) pour déterminer la nature de la crise.
-        - **Crise Déflationniste (ex: 2008, 2020) :** Allocation massive aux obligations à long terme (TLT), qui explosent à la hausse lorsque les banques centrales baissent les taux.
-        - **Choc Inflationniste (ex: 2022) :** Les obligations sont abandonnées. Le capital pivote massivement vers l'Or (GLD), les Matières Premières (DBC) et le Cash (SHY).
+        - **Crise Déflationniste (ex: 2008, 2020) :** Allocation massive aux obligations à long terme (TLT), qui explosent à la hausse lorsque les banques centrales baissent les taux en panique.
+        - **Choc Inflationniste (ex: 2022) :** Les obligations sont mathématiquement abandonnées. Le capital pivote massivement vers l'Or (GLD), les Matières Premières (DBC) et le Cash à court terme (SHY).
         
         ### 🌡️ Phase 3 : Volatilité Adaptative & Frein Cinétique
         Quand le marché est dans une tendance haussière confirmée, le système dicte l'équilibre entre Attaque et Défense.
         - **Plafond de Volatilité :** Le rang centile historique de la volatilité à 21 jours du SPY ajuste dynamiquement l'exposition offensive maximale (de 97% jusqu'à 30%).
-        - **Frein Cinétique (Kinetic Brake) :** Une sécurité sévère. Si le portefeuille subit un drawdown en direct supérieur à 10%, l'exposition offensive est amputée de 50%. Si le drawdown dépasse 15%, l'attaque est coupée de 80%, forçant le portefeuille vers des actifs défensifs pour stopper l'hémorragie.
+        - **Frein Cinétique (Kinetic Brake) :** Une sécurité sévère en direct. Si le portefeuille subit un drawdown en cours supérieur à 10%, l'exposition offensive est amputée de 50%. Si le drawdown dépasse 15%, l'attaque est coupée de 80%, forçant le portefeuille vers des actifs défensifs pour stopper l'hémorragie mécaniquement.
         
-        ### 🎯 Phase 4 : Sélection des Actifs (Classement Convexe)
-        Lorsqu'il est autorisé à attaquer, le moteur de croissance scanne l'univers offensif (Tech, Santé, Proxys Alpha).
-        - **Filtre de Qualité de Tendance :** Les actifs doivent afficher une tendance haussière propre et linéaire, mesurée par le $R^2$ de leur régression linéaire.
-        - **Double Momentum :** Il exige un momentum positif sur 6 mois ET 12 mois.
-        - **Allocation :** Le capital est distribué parmi les 7 meilleurs actifs selon un mix convexe : 60% basé sur leur rang de conviction, et 40% lissé par la Parité des Risques par Volatilité Inverse.
+        ### 🎯 Phase 4 : Sélection d'Alpha (Classement Convexe)
+        Lorsqu'il est autorisé à attaquer, le moteur de croissance scanne l'univers offensif (Tech, Santé, Marchés Émergents, Proxys Alpha).
+        - **Filtre de Qualité de Tendance ($R^2$) :** Les actifs doivent afficher une tendance haussière propre et linéaire, mesurée par le $R^2$ statistique de leur régression linéaire.
+        - **Double Momentum :** Il exige strictement un momentum positif sur les périodes de 6 mois ET 12 mois.
+        - **Allocation :** Le capital est distribué parmi les 7 meilleurs actifs selon un mix convexe : 60% basé sur leur rang de conviction pure, et 40% lissé par la Parité des Risques par Volatilité Inverse (donnant plus de poids aux actifs stables).
         
         ### ✂️ Phase 5 : Gestion des Risques Institutionnelle
-        Le système applique des contraintes asymétriques pour prévenir mathématiquement les baisses catastrophiques :
+        Le système applique des contraintes asymétriques pour prévenir mathématiquement les anéantissements catastrophiques :
         - **Plafonds stricts sur l'Offensive :** Aucun actif offensif ne peut dépasser **12%** du portefeuille. Aucun secteur ne peut dépasser **28%**.
-        - **Protocole Zéro Levier :** L'exposition brute est mathématiquement plafonnée à **98%**, maintenant une réserve permanente de 2% en cash. Le système est physiquement incapable d'emprunter de l'argent, éliminant tout risque d'appel de marge.
+        - **Protocole Zéro Levier :** L'exposition brute est mathématiquement plafonnée à **95%**, maintenant une **réserve permanente de 5% en cash**. Cela fournit la marge nécessaire pour l'exécution des ordres fractionnés, garantit une absence totale de dette, et élimine complètement la possibilité mathématique d'un appel de marge.
         """)
+
