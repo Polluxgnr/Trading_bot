@@ -1,13 +1,3 @@
-"""
-=============================================================================
-🛡️ AEGIS PRIME — V-CHIMERA (LIVE EXECUTION ENGINE)
-=============================================================================
-    Engines: Trend Quality (R²) | Score-Convex Rank | Two-Speed Hysteresis
-    Risk: Kinetic Brake | Adaptive Volatility | Sector Caps
-    Leverage: STRICTLY DISABLED (Max 98% Gross Exposure)
-=============================================================================
-"""
-
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -350,3 +340,4 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(60)
+
